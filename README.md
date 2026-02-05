@@ -1,97 +1,104 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Zubale Challenge — The "Infinite" Marketplace (Performance)
 
-# Getting Started
+React Native app that renders **10,000 tasks** in a masonry grid with filtering, image caching, and shared element transitions.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+**React Native** 0.83.1 (New Architecture) · **TypeScript** · **iOS & Android**
 
-## Step 1: Start Metro
+## Running
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
+```bash
+yarn install
+yarn ios          # or yarn android
 yarn start
+yarn lint
 ```
 
-## Step 2: Build and run your app
+---
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Why React Native CLI instead of Expo
 
-### Android
+I used the bare React Native CLI because it's the workflow I'm most comfortable with — it's what I've always worked with and where I'm most productive. For this project specifically, having direct access to native configuration was useful for setting up Reanimated 4's shared element transitions and FastImage's native caching, but honestly the main reason is just personal preference and familiarity.
 
-```sh
-# Using npm
-npm run android
+---
 
-# OR using Yarn
-yarn android
+## How I solved each requirement
+
+### 1. Virtualization
+
+I used `@shopify/flash-list` with its `masonry` prop for the Pinterest-style layout. FlashList recycles views instead of creating/destroying them like FlatList does, which makes a huge difference with 10,000 items.
+
+Each card shows an image (with variable height for the masonry effect), title, price, and distance. Cards are `React.memo`'d with a custom comparator that checks by `item.id` instead of reference equality, so they don't re-render unnecessarily when the list updates.
+
+On top of that, I added client-side pagination — the list starts with 50 items and loads 50 more as you scroll. This way FlashList doesn't have to compute layout for all 10,000 items at once.
+
+### 2. Heavy Filtering
+
+Filters for Category, Price, and Distance are displayed as inline chips in a sticky header, always visible. Tapping a chip updates the list immediately.
+
+The filtering itself runs in a single `for` loop instead of chaining multiple `.filter()` calls, which avoids creating intermediate arrays. If no filters are active it skips the loop entirely and returns the original array. The result is memoized so it only recalculates when the filter state actually changes.
+
+When you toggle a filter, the pagination resets back to 50 items so the list stays responsive even during rapid filter changes.
+
+### 3. Image Optimization
+
+I used `react-native-fast-image` which provides native-level caching through SDWebImage (iOS) and Glide (Android). Images are cached with `immutable` policy since the URLs are deterministic — same URL always returns the same image, so it skips network revalidation entirely.
+
+To avoid flickering: each card starts with a static gray placeholder, and once the image loads, it fades in with a 250ms animation using Reanimated's `useSharedValue`. The animation runs on the UI thread so it doesn't stutter even when the JS thread is busy.
+
+I chose a static placeholder over a shimmer effect because shimmer keeps animating for every card (even off-screen), which adds unnecessary work during fast scrolling.
+
+### Bonus: Shared Element Transition
+
+When you tap a card, the image animates smoothly to the detail screen as a hero image. This is done with Reanimated 4's `sharedTransitionTag` — the card image and the detail hero image share the same tag, and Reanimated handles the animation automatically.
+
+Navigation uses `@react-navigation/native-stack` which runs transitions on the native thread, needed for shared element animations to work properly. It also gives you native swipe-back on iOS for free.
+
+This feature is still experimental in Reanimated 4. If it causes issues, removing the tags degrades gracefully to a normal stack transition.
+
+### Bonus: Complex Layout (Masonry + Sticky Header)
+
+The masonry layout comes from FlashList's `masonry` + `optimizeItemArrangement` props. Image heights rotate between 3 values (150, 200, 250) based on index to create the Pinterest-style visual variety, and `optimizeItemArrangement` keeps both columns balanced.
+
+The filter bar sits in a sticky header above the list so it's always accessible while scrolling.
+
+---
+
+## Architecture
+
+Every screen follows MVVM with 5 files:
+
+```
+Screen.tsx              -> Connects ViewController to View
+View.tsx                -> Pure UI, just receives props
+useViewController.ts    -> UI logic (formatting, filters, pagination)
+useViewModel.ts         -> Business logic (data, navigation)
+types.ts                -> TypeScript interfaces
 ```
 
-### iOS
+## Project Structure
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```
+src/
+├── constants/style/         # Colors, sizes
+├── data/tasks.json          # 10,000 task dataset
+├── navigation/              # Stack navigator + route types
+├── utils/                   # Distance calc, categories, card heights
+└── views/
+    ├── components/
+    │   ├── TaskCard/        # Card with shared transition
+    │   └── FilterBar/       # Filter chips
+    ├── Marketplace/         # Main list screen
+    └── TaskDetail/          # Detail screen with hero image
 ```
 
-Then, and every time you update your native dependencies, run:
+## Dependencies
 
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+| Package | Purpose |
+|---------|---------|
+| `@shopify/flash-list` | High-performance list with masonry |
+| `@d11/react-native-fast-image` | Native image caching |
+| `react-native-reanimated` 4.x | Animations + shared element transitions |
+| `@react-navigation/native-stack` | Native stack navigation |
+| `react-native-gesture-handler` | Touch handling |
+| `react-native-screens` | Native screen containers |
+| `react-native-safe-area-context` | Safe area insets |
